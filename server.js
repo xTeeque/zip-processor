@@ -32,6 +32,22 @@ const modeMap = {
     sysName: "liorEilat",
     orgGln: "7290058255726",
   },
+  CA: {
+    label: "כלבוטק עדיקא",
+    prefix: "CA",
+    topRetailerSysName: "chalbotakAdika",
+    docOwnerEntity: "chalbotakAdika",
+    sysName: "chalbotakAdika",
+    orgGln: "7290058174508",
+  },
+  LA: {
+    label: "עדיקא",
+    prefix: "LA",
+    topRetailerSysName: "liorAdika",
+    docOwnerEntity: "liorAdika",
+    sysName: "liorAdika",
+    orgGln: "7290058104628",
+  },
 };
 
 // החלפת שתי אותיות ראשונות ב־base name (לא מוסיף — מחליף)
