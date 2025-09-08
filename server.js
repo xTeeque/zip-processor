@@ -37,8 +37,7 @@ const modeMap = {
 // החלפת שתי אותיות ראשונות ב־base name (לא מוסיף — מחליף)
 function replaceFirstTwoInBasename(name, prefix) {
   if (!name) return name;
-  return name.length >= 2 ? prefix + name.substring(2)
-                          : prefix.substring(0, name.length);
+  return name.length >= 2 ? prefix + name.substring(2) : prefix.substring(0, name.length);
 }
 
 // החלפה בנתיב של ZIP תוך שמירת התיקייה (משנה רק את שם הקובץ עצמו)
@@ -50,30 +49,63 @@ function replaceFirstTwoInZipPath(entryName, prefix) {
   return dir === "." ? newBase : posix.join(dir, newBase);
 }
 
-// טרנספורמציה עומק-מלא ל־JSON בהתאם לאופציה
-function transformJsonDeep(value, conf) {
+// טרנספורמציה ממוקדת-נתיב ל־JSON
+// משנה אך ורק:
+// 1) בשורש: topRetailerSysName, docOwnerEntity
+// 2) ב-orgs[i] כאשר orgType === "Retailer": orgGln, sysName
+// 3) ב-attachments[i]: originalFileName (החלפת שתי אותיות ראשונות בשם הקובץ)
+function transformJsonTargeted(value, conf, pathArr = []) {
   if (Array.isArray(value)) {
-    return value.map((v) => transformJsonDeep(v, conf));
+    return value.map((v, i) => transformJsonTargeted(v, conf, pathArr.concat(i)));
   }
+
   if (value && typeof value === "object") {
     const out = {};
+
+    const isInsideOrgsItem =
+      pathArr.length >= 1 && pathArr[0] === "orgs" && Number.isInteger(pathArr[1]);
+    const isInsideAttachmentsItem =
+      pathArr.length >= 1 && pathArr[0] === "attachments" && Number.isInteger(pathArr[1]);
+
     for (const [k, v] of Object.entries(value)) {
-      if (k === "topRetailerSysName") {
+      const nextPath = pathArr.concat(k);
+
+      // 1) שורש
+      if (pathArr.length === 0 && k === "topRetailerSysName") {
         out[k] = conf.topRetailerSysName;
-      } else if (k === "docOwnerEntity") {
-        out[k] = conf.docOwnerEntity;
-      } else if (k === "sysName") {
-        out[k] = conf.sysName;
-      } else if (k === "orgGln") {
-        out[k] = conf.orgGln;
-      } else if (k === "originalFileName" && typeof v === "string") {
-        out[k] = replaceFirstTwoInBasename(v, conf.prefix);
-      } else {
-        out[k] = transformJsonDeep(v, conf);
+        continue;
       }
+      if (pathArr.length === 0 && k === "docOwnerEntity") {
+        out[k] = conf.docOwnerEntity;
+        continue;
+      }
+
+      // 2) orgs[i] כאשר Retailer
+      if (isInsideOrgsItem && value.orgType === "Retailer") {
+        if (k === "orgGln") {
+          out[k] = conf.orgGln;
+          continue;
+        }
+        if (k === "sysName") {
+          out[k] = conf.sysName;
+          continue;
+        }
+      }
+
+      // 3) attachments[i]: originalFileName
+      if (isInsideAttachmentsItem && k === "originalFileName" && typeof v === "string") {
+        out[k] = replaceFirstTwoInBasename(v, conf.prefix);
+        continue;
+      }
+
+      // ברירת מחדל: ירידה רקורסיבית ללא שינוי
+      out[k] = transformJsonTargeted(v, conf, nextPath);
     }
+
     return out;
   }
+
+  // טיפוסים פרימיטיביים – ללא שינוי
   return value;
 }
 
@@ -131,7 +163,7 @@ app.post("/process", upload.single("zipfile"), (req, res) => {
         let contentStr = data.toString("utf8");
         try {
           const parsed = JSON.parse(contentStr);
-          const transformed = transformJsonDeep(parsed, conf);
+          const transformed = transformJsonTargeted(parsed, conf);
           const pretty = JSON.stringify(transformed, null, 2);
           newZip.addFile(newEntryName, Buffer.from(pretty, "utf8"));
         } catch (e) {
@@ -152,10 +184,7 @@ app.post("/process", upload.single("zipfile"), (req, res) => {
     // שליחה ישירות מהזיכרון (בלי קובץ זמני)
     const outBuffer = newZip.toBuffer();
     res.setHeader("Content-Type", "application/zip");
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename="${outZipName}"`
-    );
+    res.setHeader("Content-Disposition", `attachment; filename="${outZipName}"`);
     res.setHeader("Content-Length", outBuffer.length);
 
     // ניקוי קובץ ההעלאה אחרי שנשלח המענה
